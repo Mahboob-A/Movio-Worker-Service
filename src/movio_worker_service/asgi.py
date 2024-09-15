@@ -11,6 +11,7 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'movio_worker_service.settings')
+# TODO: Change the settings to .production in production environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'movio_worker_service.settings.dev')
 
 application = get_asgi_application()
