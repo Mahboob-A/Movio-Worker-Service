@@ -1,0 +1,95 @@
+# 150924, Sunday, 01.00 pm  
+# Docker Compose version v2.29.1
+# Docker version 27.1.1, build 6312585
+
+services: 
+  movio-worker: &movio_worker_anchor
+    restart: always 
+    build: 
+      context: . 
+      dockerfile: ./docker/dev/django/Dockerfile
+    image: movio-worker-service-image
+    volumes: 
+      - .:/home/movio/app:z
+      - movio_common_migrations:/home/movio/app/core_apps/common/migrations  
+      - movio_workers_migrations:/home/movio/app/core_apps/workers/migrations
+
+      - movio_static_volume:/home/movio/app/staticfiles   
+      - movio_media_volume:/home/movio/app/mediafiles 
+      - movio_worker_video_volume:/home/movio/app/movio-local-video-files # download from s3 and save locally to process 
+    env_file: 
+      - ./.envs/.dev/.django
+    depends_on: 
+      - movio-worker-redis
+    command: /start
+    networks: 
+      - dev-movio-worker-network
+
+  # postgres: 
+  #   build: 
+  #     context: . 
+  #     dockerfile: ./docker/dev/postgres/Dockerfile
+  #   image: movio-pg-image
+  #   volumes: 
+  #     - dev_movio_postgres_data:/var/lib/postgresql/data
+  #     - dev_movio_postgres_data_backups:/backups
+  #   env_file: 
+  #     - ./.envs/.dev/.postgres 
+  #   networks: 
+  #     - dev-movio-worker-network
+
+  nginx: 
+    build: 
+      context: . 
+      dockerfile: ./docker/dev/nginx/Dockerfile
+    restart: always
+    depends_on: 
+      - movio-worker 
+    volumes: 
+      - movio_static_volume:/app/staticfiles
+      - movio_media_volume:/app/mediafiles 
+    ports: 
+      - "8082:80"
+    networks: 
+      - dev-movio-worker-network
+    
+  movio-worker-redis: 
+    image: redis:7-alpine
+    container_name: movio-worker-redis-container
+    mem_limit: 80m 
+    networks: 
+      - dev-movio-worker-network
+
+  movio-worker-celery-worker:   
+    <<: *movio_worker_anchor
+    image: movio-worker-celery-image
+    command: /start-celeryworker
+  
+
+  worker-flower: 
+    <<: *movio_worker_anchor
+    image: movio-worker-flower--image
+    command: /start-flower
+    volumes: 
+      - dev_movio_flower_data:/data
+    ports: 
+      - "5555:5555"
+    
+    
+networks: 
+  dev-movio-worker-network:
+    external: true 
+  
+# TODO: Create the external volume in server 
+volumes: 
+  movio_static_volume: {}
+  movio_media_volume: {}
+  movio_workers_migrations: {}
+  movio_common_migrations: {}
+
+  dev_movio_flower_data: {}
+  movio_worker_video_volume:
+    external: true 
+
+
+  
