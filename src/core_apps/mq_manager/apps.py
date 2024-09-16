@@ -2,7 +2,7 @@ from django.apps import AppConfig
 from django.utils.translation import gettext_lazy as _
 
 
-class WorkersConfig(AppConfig):
+class MqManagerConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "core_apps.workers"
-    verbose_name = _("Workers")
+    name = "core_apps.mq_manager"
+    verbose_name = "_(MQ Manager)"

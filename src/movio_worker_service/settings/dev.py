@@ -21,12 +21,16 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 # DB for dev (although worker service doesn't need DB)
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
+#     }
+# }
+
+DATABASES = {"default": env.db("DATABASE_URL")}
+
+
 
 CORS_URL_REGEX = r"^/api/.*$"
 
@@ -52,8 +56,13 @@ DJANGO_APP_PORT = env("DJANGO_APP_PORT")
 
 # ######################### CELERY CONFIG
 
-CELERY_BROKER_URL = env("CELERY_BROKER_URL")
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+# CELERY_BROKER_URL = env("CELERY_BROKER_URL")
+# CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
+CELERY_BROKER_URL = "redis://movio-worker-redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://movio-worker-redis:6379/0"
+
+
 CELERY_RESULT_BACKEND_MAX_RETRIES = 15
 CELERY_TASK_SEND_SENT_EVENT = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

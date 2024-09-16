@@ -44,6 +44,7 @@ THIRD_PARTH_APPS = [
 LOCAL_APPS = [
     "core_apps.common",
     "core_apps.workers",
+    "core_apps.mq_manager", 
 ]
 
 # installed apps
@@ -85,7 +86,6 @@ WSGI_APPLICATION = "movio_worker_service.wsgi.application"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
 
-
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
@@ -118,5 +118,7 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+##############################
 
-
+# Save S3 videos to local for processing. 
+MOVIO_LOCAL_VIDEO_STORAGE_ROOT = BASE_DIR / "movio-local-video-files"

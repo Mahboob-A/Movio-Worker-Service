@@ -7,10 +7,8 @@ set -o nounset
 # TODO: as the worker service does not need DB, hence, ignoring the DB migrations for now. 
 # TODO: Check later if we need DB migrations for the worker service.
 
-# python /home/movio/app/manage.py makemigrations --no-input 
-# python /home/movio/app/manage.py migrate --no-input 
-
-
+python /home/movio/app/manage.py makemigrations --no-input 
+python /home/movio/app/manage.py migrate --no-input 
 python /home/movio/app/manage.py collectstatic --no-input  --clear 
 
 # For Development
