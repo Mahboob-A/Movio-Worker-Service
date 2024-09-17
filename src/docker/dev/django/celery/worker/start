@@ -5,5 +5,8 @@ set -o errexit
 set -o nounset 
 
 
+# Using prefork workers as segmentation and transcoding is needed
+exec celery -A movio_worker_service.celery worker -l INFO
+
 # using gevent, as genevt is better for I/O bound tasks such as network calls. 
-exec celery -A movio_worker_service.celery worker -l INFO --concurrency=500 --pool=gevent
+# exec celery -A movio_worker_service.celery worker -l INFO --concurrency=500 --pool=gevent

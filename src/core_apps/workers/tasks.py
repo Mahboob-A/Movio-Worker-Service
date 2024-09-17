@@ -74,6 +74,7 @@ def generate_chain_result(
 def download_video_from_s3(mq_data: dict):
     """Download the User Uploaded video file from S3 Bucket"""
 
+    # video_filename_with_extention: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2.mkv
     video_filename_with_extention = mq_data["video_filename_with_extention"]
     local_video_file_path = os.path.join(
         settings.MOVIO_LOCAL_VIDEO_STORAGE_ROOT,
@@ -237,7 +238,7 @@ def extract_cc_from_video(self, preprocessed_data: dict):
 
         return generate_chain_result(
             success=False,
-            exception="CalledProcessError",
+            exception="subprocess.CalledProcessError",
             error_message=str(e),
             mq_data=preprocessed_data["mq_data"],
         )
@@ -261,8 +262,8 @@ def upload_subtitle_to_translate_lambda(self, preprocessed_data: dict):
 
     The Lambda Function is triggered by an S3 Event.
 
-    The lambda function translates the "en" vtt file into: Bengali, Hindi, Frensch, and Spanish. 
-        - Once translated, the vtt file is delted. 
+    The lambda function translates the "en" vtt file into: Bengali, Hindi, Frensch, and Spanish.
+        - Once translated, the vtt file is delted.
 
     The translalted vtt files are stored in anotehr S3 bucket where the video segments are stored for easy access.
         - Strucure: s3-bucket-name/subtitles/uuid__name/lang_en.vtt, lang_bn.vtt, lang_hi.vtt, lang_fr.vtt, lang_es.vtt
@@ -278,8 +279,7 @@ def upload_subtitle_to_translate_lambda(self, preprocessed_data: dict):
     )
 
     # video_filename_with_extention: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2.mkv
-    tmp_cc_name_header = video_filename_with_extention.split(".")[0]
-    cc_s3_file_key = f"{tmp_cc_name_header}.vtt"
+    cc_s3_file_key = video_filename_with_extention.split(".")[0] + ".vtt"
 
     try:
         s3_client.upload_file(
@@ -320,6 +320,79 @@ def upload_subtitle_to_translate_lambda(self, preprocessed_data: dict):
     except Exception as e:
         logger.error(
             f"\n\n[XX SUBTITLE UPLOAD TO TRANSLATE LAMBDA ERROR XX]: Subtitle Could Not Be Uploaded to S3.\nGeneral Exception: {str(e)}\n"
+        )
+        return generate_chain_result(
+            success=False,
+            exception="Exception",
+            error_message=str(e),
+            mq_data=preprocessed_data["mq_data"],
+        )
+
+
+@shared_task(bind=True, max_retries=3)
+def transcode_video_to_mp4(self, preprocessed_data: dict):
+    """Transcode the video into mp4 for dash segmentation.
+
+    As dash player can't play .mkv container files, transcode to mp4 for easy streaming.
+    """
+    if preprocessed_data["success"] == False:
+        return preprocessed_data
+
+    local_video_file_path = preprocessed_data["local_video_file_path"]
+    local_mp4_video_file_path = local_video_file_path.split(".")[0] + ".mp4"
+
+    command = [
+        "ffmpeg",
+        "-i",
+        local_video_file_path,
+        "-map",
+        "0:v",
+        "-map", 
+        "0:a", 
+        "-b:v",
+        "800k",
+        "-s:v",
+        "640x360",
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        local_mp4_video_file_path,
+    ]
+
+    try:
+        subprocess.run(command, check=True)
+        logger.info(
+            f"\n[=> DASH TRANSCODE VIDEO SUCCESS]: Task {transcode_video_to_mp4.name}: FFmpeg command to transcode file - {local_video_file_path} executed successfully"
+        )
+        return generate_chain_result(
+            success=True,
+            success_message="transcode-video-to-mp4-success",
+            mq_data=preprocessed_data["mq_data"],
+            local_video_file_path=local_video_file_path,
+            local_mp4_video_file_path=local_mp4_video_file_path,
+            local_cc_file_path=preprocessed_data["local_cc_file_path"],
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            f"\n[XX DASH TRANSCODE VIDEO ERROR XX]: Task {transcode_video_to_mp4.name}: FFmpeg command to transcode file - {local_video_file_path}  failed\n[Exception]: {str(e)}"
+        )
+        if self.request.retries < self.max_retries:
+            retry_in = 2**self.request.retries
+            logger.warning(
+                f"\n[## TRANSCODE VIDEO WARNING]: Ffmpeg Command to Transcode Video Rerying in: {retry_in}.\nError: {str(e)}"
+            )
+            self.retry(exc=e, countdown=retry_in)
+        else: 
+            return generate_chain_result(
+                success=False,
+                exception="subprocess.CalledProcessError",
+                error_message=str(e),
+                mq_data=preprocessed_data["mq_data"],
+            )
+    except Exception as e:
+        logger.warning(
+            f"\n[## TRANSCODE VIDEO ERROR]: Ffmpeg Command to Transcode Video Failed\nError: {str(e)}"
         )
         return generate_chain_result(
             success=False,
