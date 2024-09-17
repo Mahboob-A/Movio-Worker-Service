@@ -4,13 +4,17 @@ import traceback
 
 from django.conf import settings
 
-from core_apps.workers.tasks import download_video_from_s3, delete_video_file_from_s3
+from core_apps.workers.tasks import (
+    download_video_from_s3,
+    delete_video_file_from_s3,
+    extract_cc_from_video,
+    upload_subtitle_to_translate_lambda,
+)
 
 from celery import chain, group, chord
 
 from core_apps.mq_manager.from_api_service_consumer import (
     s3_video_consumer_mq,
-    S3VideoConsumerMQ,
 )
 
 
@@ -25,16 +29,18 @@ def callback(channel, method, properties, body):
         mq_data = json.loads(body.decode("utf-8"))
 
         celery_pipeline_to_process_video = chain(
-                download_video_from_s3.s(mq_data),
-                delete_video_file_from_s3.s(),
-            )
+            download_video_from_s3.s(mq_data),
+            delete_video_file_from_s3.s(),
+            extract_cc_from_video.s(),
+            upload_subtitle_to_translate_lambda.s(),
+        )
 
         celery_pipeline_to_process_video.apply_async()
 
         logger.info(
             f"\n\n[=> MQ Consume Started]: MQ Message Consume Success.\n"
         )
-        
+
     except Exception as e:
         logger.error(
             f"\n\n[XX MQ Consume Failed XX]: MQ Message Consume Failed.\n"

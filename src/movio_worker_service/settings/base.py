@@ -122,3 +122,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Save S3 videos to local for processing. 
 MOVIO_LOCAL_VIDEO_STORAGE_ROOT = BASE_DIR / "movio-local-video-files"
+
+# Save Extracted CC from video
+MOVIO_LOCAL_CC_STORAGE_ROOT = BASE_DIR / "movio-local-cc-files"
+
+# Traget languages to transranslate the subtiles: bengali, hindi, french, spanish
+MOVIO_SUBTITLE_TRANSLATE_TARGET_LANGUAGES = ["bn", "hi", "fr", "es"] 

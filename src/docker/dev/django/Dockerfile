@@ -32,14 +32,15 @@ ENV BUILD_ENV=${BUILD_ENVIRONMENT}
 
 WORKDIR ${APP_HOME}
 
-RUN mkdir -p ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles ${APP_HOME}/movio-local-video-files && \
-        chown -R movio:movio ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles  ${APP_HOME}/movio-local-video-files && \
-        chmod -R 775 ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles ${APP_HOME}/movio-local-video-files
+RUN mkdir -p ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles ${APP_HOME}/movio-local-video-files  ${APP_HOME}/movio-local-cc-files  && \
+        chown -R movio:movio ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles ${APP_HOME}/movio-local-video-files ${APP_HOME}/movio-local-cc-files && \
+        chmod -R 775 ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles ${APP_HOME}/movio-local-video-files ${APP_HOME}/movio-local-cc-files
 
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
         libpq-dev \
         gettext netcat \
+        ffmpeg \ 
         && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
         && rm -rf /var/lib/apt/lists/*
 
