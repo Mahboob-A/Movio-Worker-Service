@@ -1,5 +1,5 @@
-from .base import * 
-from .base import env # noqa 
+from .base import *
+from .base import env  # noqa
 
 SECRET_KEY = env("SECRET_KEY")
 
@@ -29,7 +29,6 @@ CORS_ALLOWED_ORIGINS = [
 # }
 
 DATABASES = {"default": env.db("DATABASE_URL")}
-
 
 
 CORS_URL_REGEX = r"^/api/.*$"
@@ -71,7 +70,9 @@ if USE_TZ:
 
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
-AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+AWS_STORAGE_BUCKET_NAME = env(
+    "AWS_STORAGE_BUCKET_NAME"
+)  # bucket where user uploaded videors are stored
 
 AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
 AWS_QUERYSTRING_AUTH = False  # False will make data public
@@ -80,6 +81,27 @@ AWS_S3_FILE_OVERWRITE = False
 AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
 
 MOVIO_S3_VIDEO_ROOT = "movio-temp-videos"
+
+# S3 Bucket for CC-Subtiles to be processed by lambda
+AWS_MOVIO_S3_RAW_CC_SUBTITLE_BUCKET_NAME = env(
+    "AWS_MOVIO_S3_RAW_CC_SUBTITLE_BUCKET_NAME"
+)
+
+
+# S3 Bucket for Segments and processed subtitles: segments and subtitles directory
+AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME = env(
+    "AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME"
+)
+
+# Root of video segments
+AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT = (
+    f"{AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}/segments"
+)
+# Root of video subtitles
+AWS_MOVIO_S3_SUBTITLES_BUCKET_ROOT = (
+    f"{AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}/subtitles"
+)
+
 
 # ########################## RabbitMQ Config
 

@@ -61,15 +61,14 @@ def generate_chain_result(
         "exception": exception,
         "error_message": error_message,
         "success_message": success_message,
-
         "delete_success": delete_success,
         "delete_exception": delete_exception,
         "delete_error_message": delete_error_message,
         "delete_success_message": delete_success_message,
-
         "mq_data": mq_data,  # dict of dict
         **kwargs,
     }
+
 
 @shared_task
 def download_video_from_s3(mq_data: dict):
@@ -83,7 +82,7 @@ def download_video_from_s3(mq_data: dict):
 
     try:
         s3_client.download_file(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,  # movio-api-service uploads the user submitted videos to this bucket
             Key=mq_data["s3_file_key"],
             Filename=local_video_file_path,
         )
@@ -185,14 +184,19 @@ def extract_cc_from_video(self, preprocessed_data: dict):
     if preprocessed_data["success"] == False:
         return preprocessed_data
 
-    video_filename_with_extention = preprocessed_data.get("mq_data").get("video_filename_with_extention")
-    local_cc_file_without_extention = os.path.join(settings.MOVIO_LOCAL_CC_STORAGE_ROOT, video_filename_with_extention.split(".")[0])
+    # video_filename_with_extention: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2.mkv
+    video_filename_with_extention = preprocessed_data.get("mq_data").get(
+        "video_filename_with_extention"
+    )
+    local_cc_file_without_extention = os.path.join(
+        settings.MOVIO_LOCAL_CC_STORAGE_ROOT,
+        video_filename_with_extention.split(".")[0],
+    )
     local_cc_file_path = f"{local_cc_file_without_extention}.vtt"
 
     # BASE_DIR/movio-local-cc-files/video_filename.vtt
 
     local_video_file_path = preprocessed_data["local_video_file_path"]
-    # command = f"ffmpeg -i {local_video_file_path} -map 0:s:0 -f webvtt -y {local_cc_file_path}" # only the primary subtitle stream is extracted
 
     command = [
         "ffmpeg",
@@ -208,14 +212,15 @@ def extract_cc_from_video(self, preprocessed_data: dict):
 
     try:
         subprocess.run(command, check=True)
-        logger.info(f"\n\n[=> SUBTITLE EXTRACTION SUCCESS]: Subtitle from Video Extraction Success of file: {video_filename_with_extention}\n")
+        logger.info(
+            f"\n\n[=> SUBTITLE EXTRACTION SUCCESS]: Subtitle from Video Extraction Success of file: {video_filename_with_extention}\n"
+        )
 
         return generate_chain_result(
             success=True,
             success_message="subtitle-extraction-success",
             mq_data=preprocessed_data["mq_data"],
-            
-            local_video_file_path=local_video_file_path, 
+            local_video_file_path=local_video_file_path,
             local_cc_file_path=local_cc_file_path,
         )
 
@@ -248,7 +253,77 @@ def extract_cc_from_video(self, preprocessed_data: dict):
         )
 
 
+@shared_task(bind=True, max_retries=3)
+def upload_subtitle_to_translate_lambda(self, preprocessed_data: dict):
+    """Translate the Subtitles
 
-    
-    
-    
+    A Lambda Function is running to batch process the .vtt file translation.
+
+    The Lambda Function is triggered by an S3 Event.
+
+    The lambda function translates the "en" vtt file into: Bengali, Hindi, Frensch, and Spanish. 
+        - Once translated, the vtt file is delted. 
+
+    The translalted vtt files are stored in anotehr S3 bucket where the video segments are stored for easy access.
+        - Strucure: s3-bucket-name/subtitles/uuid__name/lang_en.vtt, lang_bn.vtt, lang_hi.vtt, lang_fr.vtt, lang_es.vtt
+    """
+
+    if preprocessed_data["success"] == False:
+        return preprocessed_data
+
+    local_video_file_path = preprocessed_data["local_video_file_path"]
+    local_cc_file_path = preprocessed_data["local_cc_file_path"]
+    video_filename_with_extention = preprocessed_data.get("mq_data").get(
+        "video_filename_with_extention"
+    )
+
+    # video_filename_with_extention: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2.mkv
+    tmp_cc_name_header = video_filename_with_extention.split(".")[0]
+    cc_s3_file_key = f"{tmp_cc_name_header}.vtt"
+
+    try:
+        s3_client.upload_file(
+            Filename=local_cc_file_path,
+            Bucket=settings.AWS_MOVIO_S3_RAW_CC_SUBTITLE_BUCKET_NAME,
+            Key=cc_s3_file_key,
+            ExtraArgs={
+                "ContentType": f"text/vtt",
+            },
+        )
+        logger.info(
+            f"\n\n[=>  SUBTITLE UPLOAD TO TRANSLATE LAMBDA SUCCESS]: Subtitle Upload to S3 Successful: {cc_s3_file_key}"
+        )
+        return generate_chain_result(
+            success=True,
+            success_message="subtitle-upload-to-translate-lambda-success",
+            mq_data=preprocessed_data["mq_data"],
+            local_video_file_path=local_video_file_path,
+            local_cc_file_path=local_cc_file_path,
+        )
+    except ClientError as e:
+        logger.error(
+            f"\n\n[XX SUBTITLE UPLOAD TO TRANSLATE LAMBDA ERROR XX]: Subtitle Could Not Be Uploaded to S3.\nException: {str(e)}\n"
+        )
+        if self.request.retries < self.max_retries:
+            retry_in = 2**self.request.retries
+            logger.warning(
+                f"\n\n[## SUBTITLE UPLOAD TO TRANSLATE LAMBDA WARNING ]: ClientError: The Local Subtitle {cc_s3_file_key} Couldn't be Uploaded To S3.\nRetrying in: {retry_in}.\n"
+            )
+            raise self.retry(exc=e, countdown=retry_in)
+        else:
+            return generate_chain_result(
+                success=False,
+                exception="ClientError",
+                error_message=str(e),
+                mq_data=preprocessed_data["mq_data"],
+            )
+    except Exception as e:
+        logger.error(
+            f"\n\n[XX SUBTITLE UPLOAD TO TRANSLATE LAMBDA ERROR XX]: Subtitle Could Not Be Uploaded to S3.\nGeneral Exception: {str(e)}\n"
+        )
+        return generate_chain_result(
+            success=False,
+            exception="Exception",
+            error_message=str(e),
+            mq_data=preprocessed_data["mq_data"],
+        )
