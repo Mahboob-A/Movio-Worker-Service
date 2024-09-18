@@ -8,6 +8,7 @@ __pycache__
 *.so
 
 demo_subtitle.vtt 
+rain-bg-vids/
 
 mediafiles/
 staticfiles/

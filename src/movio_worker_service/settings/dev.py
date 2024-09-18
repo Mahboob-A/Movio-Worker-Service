@@ -93,14 +93,11 @@ AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME = env(
     "AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME"
 )
 
-# Root of video segments
-AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT = (
-    f"{AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}/segments"
-)
-# Root of video subtitles
-AWS_MOVIO_S3_SUBTITLES_BUCKET_ROOT = (
-    f"{AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}/subtitles"
-)
+# Root of video segments in S3 
+AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT = ("segments")
+
+# Root of video subtitles in S3 
+AWS_MOVIO_S3_SUBTITLES_BUCKET_ROOT = ("subtitles")
 
 
 # ########################## RabbitMQ Config
