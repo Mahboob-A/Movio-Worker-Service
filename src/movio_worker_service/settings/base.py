@@ -120,10 +120,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 ##############################
 
-# Volumes 
+# Volumes
 
-# Save S3 videos to local for processing. 
+# Save S3 videos to local for processing.
 MOVIO_LOCAL_VIDEO_STORAGE_ROOT = BASE_DIR / "movio-local-video-files"
+
+MOVIO_LOCAL_VIDEO_STORAGE_S3_DOWNLOAD_DIR = MOVIO_LOCAL_VIDEO_STORAGE_ROOT / "tmp-s3-downloads"
+
+
+# Video segments will be saved in this directory
+MOVIO_LOCAL_VIDEO_STORAGE_SEGMENTS_ROOT_DIR = MOVIO_LOCAL_VIDEO_STORAGE_ROOT / "tmp-segments"
 
 # Save Extracted CC from video
 MOVIO_LOCAL_CC_STORAGE_ROOT = BASE_DIR / "movio-local-cc-files"

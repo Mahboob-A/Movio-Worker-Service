@@ -10,6 +10,9 @@ from core_apps.workers.tasks import (
     extract_cc_from_video,
     upload_subtitle_to_translate_lambda,
     transcode_video_to_mp4,
+    dash_segment_video,
+    edit_manifest_to_add_subtitle_information, 
+    upload_dash_segments_to_s3,
 )
 
 from celery import chain, group, chord
@@ -34,7 +37,10 @@ def callback(channel, method, properties, body):
             delete_video_file_from_s3.s(),
             extract_cc_from_video.s(),
             upload_subtitle_to_translate_lambda.s(),
-            transcode_video_to_mp4.s(), 
+            transcode_video_to_mp4.s(),
+            dash_segment_video.s(),
+            edit_manifest_to_add_subtitle_information.s(), 
+            upload_dash_segments_to_s3.s(),
         )
 
         celery_pipeline_to_process_video.apply_async()
