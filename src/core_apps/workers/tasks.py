@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 from lxml import etree
 
@@ -6,11 +7,14 @@ import logging
 
 
 from django.conf import settings
-from celery import shared_task, chain, group, chord # noqa
+from celery import shared_task, chain, group, chord  # noqa
 
 from botocore.exceptions import ClientError
 
 from core_apps.common.s3_utils import get_s3_client
+from core_apps.mq_manager.to_api_service_producer import (
+    video_process_result_publisher_mq,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +86,7 @@ def download_video_from_s3(mq_data: dict):
     # BASE_DIR / movio-local-video-files / tmp-s3-downloads
     if not os.path.exists(settings.MOVIO_LOCAL_VIDEO_STORAGE_S3_DOWNLOAD_DIR):
         os.makedirs(settings.MOVIO_LOCAL_VIDEO_STORAGE_S3_DOWNLOAD_DIR)
-        
+
     local_video_file_path = os.path.join(
         settings.MOVIO_LOCAL_VIDEO_STORAGE_S3_DOWNLOAD_DIR,
         video_filename_with_extention,
@@ -434,7 +438,7 @@ def dash_segment_video(self, preprocessed_data: dict):
         settings.MOVIO_LOCAL_VIDEO_STORAGE_SEGMENTS_ROOT_DIR, raw_video_filename
     )
 
-    # BASE_DIR / movio-local-video-files / tmp-segments / 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2 
+    # BASE_DIR / movio-local-video-files / tmp-segments / 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2
     os.makedirs(mp4_segment_files_output_dir, exist_ok=True)
 
     logger.info(
@@ -533,7 +537,7 @@ def edit_manifest_to_add_subtitle_information(preprocessed_data: dict):
     local_video_file_path = preprocessed_data["local_video_file_path"]
 
     # BASE_DIR / movio-local-video-files / tmp-segments / 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2 / manifest.mpd
-    # get uuid_name: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2 part 
+    # get uuid_name: 7317dea7-39ac-4311-b6ea-f5920fc90c86__test2 part
     local_video_file_name = os.path.basename(local_video_file_path).split(".")[0]
 
     def add_subtitle_information(manifest_path):
@@ -613,14 +617,10 @@ def edit_manifest_to_add_subtitle_information(preprocessed_data: dict):
         )
 
 
-# Sub Task to upload segments as batch upload to S3 (created by: upload_dash_segments_to_s3 task)
+# Sub Task to upload segments as batch upload to S3 (created by: upload_dash_segments_to_s3_and_publish_message_callback task)
 @shared_task(bind=True, max_retries=5)
 def upload_segment_batch_to_s3_sub_task(self, segment_batch: list):
-    """Batch upload of segments in S3.
-    """
-
-    # One s3 client per celery worker process. created using celery singal. The S3 client class is Singleton.
-    # s3_client = s3_client_vod_data_singleton.get_client()
+    """Batch upload of segments in S3."""
 
     failed_segment_uploads = {}
 
@@ -631,7 +631,7 @@ def upload_segment_batch_to_s3_sub_task(self, segment_batch: list):
         try:
             s3_client.upload_file(
                 Filename=local_single_segment_path,
-                Bucket=settings.AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME, 
+                Bucket=settings.AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME,
                 Key=s3_file_path,
             )
             uploaded_segments += 1
@@ -682,18 +682,22 @@ def upload_segment_batch_to_s3_sub_task(self, segment_batch: list):
 
 # Main Entrypoint task to upload segment to S3
 @shared_task
-def upload_dash_segments_to_s3(preprocessing_data: dict):
+def upload_dash_segments_to_s3_and_publish_message_callback(preprocessed_data: dict):
     """
-    upload_dash_segments_to_s3: Main Entrypoint function to upload local single segment file by batch processing in S3 Bucket.
+    upload_dash_segments_to_s3_and_publish_message_callback: Main Entrypoint function to upload local single segment file by batch processing in S3 Bucket.
+
+    The task create batches of 10 segments and creates task as group.
+    The task uses a chord to upload the segments batches, and a chain of tasks as the callback of the chord.
+    The callback chain of tasks includes: publish message to mq and delete local files tasks.
     """
 
-    if preprocessing_data["success"] == False:
-        return preprocessing_data
+    if preprocessed_data["success"] == False:
+        return preprocessed_data
 
-    local_video_file_path = preprocessing_data["local_video_file_path"]
-    local_mp4_video_file_path = preprocessing_data["local_mp4_video_file_path"]
-    mp4_segment_files_output_dir = preprocessing_data["mp4_segment_files_output_dir"]
-    local_cc_file_path = preprocessing_data["local_cc_file_path"]
+    local_video_file_path = preprocessed_data["local_video_file_path"]
+    local_mp4_video_file_path = preprocessed_data["local_mp4_video_file_path"]
+    mp4_segment_files_output_dir = preprocessed_data["mp4_segment_files_output_dir"]
+    local_cc_file_path = preprocessed_data["local_cc_file_path"]
 
     try:
 
@@ -705,7 +709,9 @@ def upload_dash_segments_to_s3(preprocessing_data: dict):
         local_video_file_name = os.path.basename(local_video_file_path).split(".")[0]
 
         #  bucket/segments/uuid__videoname/all-segment-files
-        s3_main_file_path = f"{settings.AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT}/{local_video_file_name}/"
+        s3_main_file_path = (
+            f"{settings.AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT}/{local_video_file_name}/"
+        )
 
         segment_batchs = []
         current_batch = []
@@ -728,33 +734,40 @@ def upload_dash_segments_to_s3(preprocessing_data: dict):
         if current_batch:
             segment_batchs.append(current_batch)
 
+        data = generate_chain_result(
+            success=True,
+            success_message="DASH Segments Batch Creation for S3 Upload Success.",
+            mq_data=preprocessed_data["mq_data"],
+            local_video_file_path=local_video_file_path,
+            local_mp4_video_file_path=local_mp4_video_file_path,
+            mp4_segment_files_output_dir=mp4_segment_files_output_dir,
+            local_cc_file_path=local_cc_file_path,
+        )
+
         # using group to upload all the segments parallely
         segment_upload_group = group(
             upload_segment_batch_to_s3_sub_task.s(single_batch)
             for single_batch in segment_batchs
         )
 
-        data = generate_chain_result(
-            success=True,
-            success_message="DASH Segments Batch Creation for S3 Upload Success.",
-            mq_data=preprocessing_data["mq_data"], 
-            local_video_file_path=local_video_file_path, 
-            local_mp4_video_file_path=local_mp4_video_file_path, 
-            mp4_segment_files_output_dir=mp4_segment_files_output_dir, 
-            local_cc_file_path=local_cc_file_path, 
-        )
-        # using chord so that cleanup task is only executed when all the upload tasks are completed.
-        setment_upload_chord = chord(
-            segment_upload_group,
+        # Callback chain for the chord: publish mq message, and dlete local files.
+        callback_chain = chain(
+            publish_video_process_message_mq.s(data),
             local_file_cleanup_callback.s(data),
         )
 
+        # using chord so that cleanup task is only executed when all the upload tasks are completed.
+        setment_upload_chord = chord(
+            segment_upload_group,
+            callback_chain,
+        )
+
         setment_upload_chord.apply_async()
+
         logger.info(
             f"\n\n[=> MAIN DASH SEGMENTS BATCH S3 UPLOAD COMPLETED]: DASH Segments Batch Creation for S3 Upload Completed."
         )
-
-
+        return data
     except Exception as e:
         logger.error(
             f"\n[XX MAIN DASH SEGMENTS BATCH S3 UPLOAD ERROR XX]: Unexpected Error Occurred.\nException: {str(e)}"
@@ -762,7 +775,7 @@ def upload_dash_segments_to_s3(preprocessing_data: dict):
         return generate_chain_result(
             success=False,
             success_message="DASH Segments Batch Creation for S3 Upload Failed.",
-            mq_data=preprocessing_data["mq_data"],
+            mq_data=preprocessed_data["mq_data"],
             local_video_file_path=local_video_file_path,
             local_mp4_video_file_path=local_mp4_video_file_path,
             mp4_segment_files_output_dir=mp4_segment_files_output_dir,
@@ -770,11 +783,92 @@ def upload_dash_segments_to_s3(preprocessing_data: dict):
         )
 
 
-# S3 Upload Chord callback. Only executes after the header tasks i.e. segment upload to s3 are completed.
 @shared_task
-def local_file_cleanup_callback(results, preprocessing_data):
+def publish_video_process_message_mq(results, preprocessed_data: dict):
+    """Publish Video Process Message to MQ to be Consumed by Movio-API-Service
 
-    # Checkpoint for S3 Upload
+    Callback Chain:
+        The first task of the callback chain: publish_video_process_message_mq
+        The second task of the callback chain:  local_file_cleanup_callback
+        Parent Task of Chord: upload_dash_segments_to_s3_and_publish_message_callback
+    """
+
+    if preprocessed_data["success"] == False:
+        return preprocessed_data
+
+    local_video_file_path = preprocessed_data["local_video_file_path"]
+    local_video_file_name = os.path.basename(local_video_file_path).split(".")[0]
+    local_cc_file_path = preprocessed_data["local_cc_file_path"]
+
+    if os.path.exists(local_cc_file_path):
+        with open(local_cc_file_path, "r") as subtitle_file:
+            subtitle_en_vtt_data = subtitle_file.read()
+    else:
+        subtitle_en_vtt_data = None
+
+    # s3 manifest.mpd file location:
+    s3_manifest_file_url = (
+        f"https://{settings.AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}.s3.amazonaws.com/"
+        f"{settings.AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT}/{local_video_file_name}/manifest.mpd"
+    )
+
+    mq_data_to_publish = {
+        "video_id": preprocessed_data.get("mq_data").get("video_id"),
+        "user_id": preprocessed_data.get("mq_data").get("user_data").get("user_id"),
+        "email": preprocessed_data.get("mq_data").get("user_data").get("email"),
+        "s3_manifest_file_url": s3_manifest_file_url,
+        "subtitle_en_vtt_data": subtitle_en_vtt_data,
+    }
+
+    try:
+        # dict to json
+        mq_data_to_publish = json.dumps(mq_data_to_publish)
+
+        video_process_result_publisher_mq.publish_data(
+            video_process_data=mq_data_to_publish
+        )
+
+        logger.info(
+            f"\n\n[=> MESSAGE PUBLISH TO MQ SUCCESS]: Video Process Message Published to MQ Success.\n"
+        )
+        return generate_chain_result(
+            success=True,
+            success_message="Video Process Message Published to MQ Success.",
+            mq_data=preprocessed_data["mq_data"],
+            local_video_file_path=local_video_file_path,
+            local_mp4_video_file_path=preprocessed_data["local_mp4_video_file_path"],
+            mp4_segment_files_output_dir=preprocessed_data[
+                "mp4_segment_files_output_dir"
+            ],
+            local_cc_file_path=local_cc_file_path,
+        )
+    except Exception as e:
+        logger.error(
+            f"\n\n[XX MESSAGE PUBLISH TO MQ ERROR XX]: Unexpected Error Occurred: Task: {publish_video_process_message_mq.name}.\nException: {str(e)}"
+        )
+        return generate_chain_result(
+            success=False,
+            success_message="Video Process Message Publish to MQ Failed.",
+            mq_data=preprocessed_data["mq_data"],
+            local_video_file_path=local_video_file_path,
+            local_mp4_video_file_path=preprocessed_data["local_mp4_video_file_path"],
+            mp4_segment_files_output_dir=preprocessed_data[
+                "mp4_segment_files_output_dir"
+            ],
+            local_cc_file_path=local_cc_file_path,
+        )
+
+
+@shared_task
+def local_file_cleanup_callback(results, preprocessed_data):
+    """Deletes the Local Files after the S3 Upload, MQ Message Publish is completed.
+
+    Callback Chain:
+        The first task of the callback chain: publish_video_process_message_mq
+        The second task of the callback chain:  local_file_cleanup_callback
+        Parent Task of Chord: upload_dash_segments_to_s3_and_publish_message_callback
+    """
+
     logger.info(
         f"\n\n[=> LOCAL FILE CLEANUP CALLBACK]: Validating Segments Upload Status."
     )
@@ -782,11 +876,11 @@ def local_file_cleanup_callback(results, preprocessing_data):
     # WE CAN ADD SENTRY OR OTHER MECHANISSM TO MONITOR THE UPLOADS STATUS HERE FOR FUTURE UPDATEA
     if all(result == "success" for result in results):
         logger.info(
-            f"\n[ => LOCAL FILE CLEANUP CALLBACK]: SEGMENTS BATCH S3 UPLOAD SUCCESS: Task - {upload_dash_segments_to_s3.name} - is successfull.\nCallback: {local_file_cleanup_callback.name}"
+            f"\n[ => LOCAL FILE CLEANUP CALLBACK]: SEGMENTS BATCH S3 UPLOAD SUCCESS: Task - {upload_dash_segments_to_s3_and_publish_message_callback.name} - is successfull.\nCallback: {local_file_cleanup_callback.name}"
         )
     else:
         logger.error(
-            f"\n[XX LOCAL FILE CLEANUP CALLBACK XX]: SEGMENTS BATCH S3 UPLOAD ERROR: Task - {upload_dash_segments_to_s3.name} - Some segments failed to upload.\nCallback: {local_file_cleanup_callback.name}."
+            f"\n[XX LOCAL FILE CLEANUP CALLBACK XX]: SEGMENTS BATCH S3 UPLOAD ERROR: Task - {upload_dash_segments_to_s3_and_publish_message_callback.name} - Some segments failed to upload.\nCallback: {local_file_cleanup_callback.name}."
         )
 
     logger.info(
@@ -794,13 +888,13 @@ def local_file_cleanup_callback(results, preprocessing_data):
     )
 
     # Irrespecitive of preprocessind_data["success"] result, delte teh local files
-    local_video_file_path = preprocessing_data["local_video_file_path"]
-    local_mp4_video_file_path = preprocessing_data["local_mp4_video_file_path"]
-    mp4_segment_files_output_dir = preprocessing_data["mp4_segment_files_output_dir"]
-    local_cc_file_path = preprocessing_data["local_cc_file_path"]
+    local_video_file_path = preprocessed_data["local_video_file_path"]
+    local_mp4_video_file_path = preprocessed_data["local_mp4_video_file_path"]
+    mp4_segment_files_output_dir = preprocessed_data["mp4_segment_files_output_dir"]
+    local_cc_file_path = preprocessed_data["local_cc_file_path"]
 
-    local_file_cleanup_success = False 
-    local_segments_cleanup_success = False 
+    local_file_cleanup_success = False
+    local_segments_cleanup_success = False
     try:
 
         if os.path.exists(local_video_file_path):
@@ -811,8 +905,8 @@ def local_file_cleanup_callback(results, preprocessing_data):
 
         if os.path.exists(local_cc_file_path):
             os.remove(local_cc_file_path)
-        
-        local_file_cleanup_success = True 
+
+        local_file_cleanup_success = True
         logger.info(
             "\n[=>  LOCAL FILE CLEANUP CALLBACK SUCCESS]: Local Files Cleanup Success."
         )
@@ -829,7 +923,7 @@ def local_file_cleanup_callback(results, preprocessing_data):
                 os.remove(os.path.join(root, file))
         os.rmdir(mp4_segment_files_output_dir)
 
-        local_segments_cleanup_success = True 
+        local_segments_cleanup_success = True
         logger.info(
             "\n[=>  LOCAL FILE CLEANUP CALLBACK SUCCESS]: Segment Files Cleanup Success."
         )
@@ -844,11 +938,14 @@ def local_file_cleanup_callback(results, preprocessing_data):
     return generate_chain_result(
         success=True,
         success_message="Local File Cleanup Success.",
-        mq_data=preprocessing_data["mq_data"],
+        mq_data=preprocessed_data["mq_data"],
         local_video_file_path=local_video_file_path,
         local_mp4_video_file_path=local_mp4_video_file_path,
         mp4_segment_files_output_dir=mp4_segment_files_output_dir,
         local_cc_file_path=local_cc_file_path,
-        local_file_cleanup_success=local_file_cleanup_success, 
-        local_segments_cleanup_success=local_segments_cleanup_success,         
+        local_file_cleanup_success=local_file_cleanup_success,
+        local_segments_cleanup_success=local_segments_cleanup_success,
     )
+
+
+# Ennd Of Tasks.

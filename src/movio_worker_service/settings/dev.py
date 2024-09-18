@@ -93,17 +93,20 @@ AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME = env(
     "AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME"
 )
 
-# Root of video segments in S3 
-AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT = ("segments")
+# Root of video segments in S3
+AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT = "segments"
 
-# Root of video subtitles in S3 
-AWS_MOVIO_S3_SUBTITLES_BUCKET_ROOT = ("subtitles")
+# Root of video subtitles in S3
+AWS_MOVIO_S3_SUBTITLES_BUCKET_ROOT = "subtitles"
 
 
 # ########################## RabbitMQ Config
 
 CLOUD_AMQP_URL = env("CLOUD_AMQP_URL")
 
+# Queue where the Movio-API-Service publishes the User Uploaded Videos S3 URL and User Information
+# Movio-Worker-Service is Consumer of this Queue
+# Movio-API-Service is Producer of this Queue
 MOVIO_RAW_VIDEO_SUBMISSION_EXCHANGE_NAME = env(
     "MOVIO_RAW_VIDEO_SUBMISSION_EXCHANGE_NAME"
 )
@@ -114,6 +117,25 @@ MOVIO_RAW_VIDEO_SUBMISSION_QUEUE_NAME = env("MOVIO_RAW_VIDEO_SUBMISSION_QUEUE_NA
 MOVIO_RAW_VIDEO_SUBMISSION_BINDING_KEY = env("MOVIO_RAW_VIDEO_SUBMISSION_BINDING_KEY")
 MOVIO_RAW_VIDEO_SUBMISSION_ROUTING_KEY = env("MOVIO_RAW_VIDEO_SUBMISSION_ROUTING_KEY")
 
+
+# Queue where the Movio-Worker-Service publishes the processed video result with User Inforamtiona
+# Movio-Worker-Service is Producer of this Queue
+# Movio-API-Service is Consumer of this Queue
+MOVIO_PROCESSED_VIDEO_RESULT_SUBMISSION_EXCHANGE_NAME = env(
+    "MOVIO_PROCESSED_VIDEO_RESULT_SUBMISSION_EXCHANGE_NAME"
+)
+MOVIO_PROCESSED_VIDEO_RESULT_EXCHANGE_TYPE = env(
+    "MOVIO_PROCESSED_VIDEO_RESULT_EXCHANGE_TYPE"
+)
+
+MOVIO_PROCESSED_VIDEO_RESULT_QUEUE_NAME = env("MOVIO_PROCESSED_VIDEO_RESULT_QUEUE_NAME")
+
+MOVIO_PROCESSED_VIDEO_RESULT_BINDING_KEY = env(
+    "MOVIO_PROCESSED_VIDEO_RESULT_BINDING_KEY"
+)
+MOVIO_PROCESSED_VIDEO_RESULT_ROUTING_KEY = env(
+    "MOVIO_PROCESSED_VIDEO_RESULT_ROUTING_KEY"
+)
 
 ########################################################
 # logging

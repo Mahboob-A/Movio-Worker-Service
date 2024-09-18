@@ -11,11 +11,11 @@ from core_apps.workers.tasks import (
     upload_subtitle_to_translate_lambda,
     transcode_video_to_mp4,
     dash_segment_video,
-    edit_manifest_to_add_subtitle_information, 
-    upload_dash_segments_to_s3,
+    edit_manifest_to_add_subtitle_information,
+    upload_dash_segments_to_s3_and_publish_message_callback,
 )
 
-from celery import chain, group, chord
+from celery import chain, group, chord  # noqa
 
 from core_apps.mq_manager.from_api_service_consumer import (
     s3_video_consumer_mq,
@@ -30,17 +30,17 @@ def callback(channel, method, properties, body):
 
     try:
         # body in bytes, decode to str then dict
-        mq_data = json.loads(body.decode("utf-8"))
+        mq_consumed_data = json.loads(body.decode("utf-8"))
 
         celery_pipeline_to_process_video = chain(
-            download_video_from_s3.s(mq_data),
+            download_video_from_s3.s(mq_consumed_data),
             delete_video_file_from_s3.s(),
             extract_cc_from_video.s(),
             upload_subtitle_to_translate_lambda.s(),
             transcode_video_to_mp4.s(),
             dash_segment_video.s(),
             edit_manifest_to_add_subtitle_information.s(), 
-            upload_dash_segments_to_s3.s(),
+            upload_dash_segments_to_s3_and_publish_message_callback.s(),
         )
 
         celery_pipeline_to_process_video.apply_async()
