@@ -797,7 +797,9 @@ def publish_video_process_message_mq(results, preprocessed_data: dict):
         return preprocessed_data
 
     local_video_file_path = preprocessed_data["local_video_file_path"]
-    local_video_file_name = os.path.basename(local_video_file_path).split(".")[0]
+    video_filename_wothout_extention = os.path.basename(local_video_file_path).split(
+        "."
+    )[0]
     local_cc_file_path = preprocessed_data["local_cc_file_path"]
 
     if os.path.exists(local_cc_file_path):
@@ -809,13 +811,14 @@ def publish_video_process_message_mq(results, preprocessed_data: dict):
     # s3 manifest.mpd file location:
     s3_manifest_file_url = (
         f"https://{settings.AWS_MOVIO_S3_SEGMENTS_SUBTITLES_BUCKET_NAME}.s3.amazonaws.com/"
-        f"{settings.AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT}/{local_video_file_name}/manifest.mpd"
+        f"{settings.AWS_MOVIO_S3_SEGMENTS_BUCKET_ROOT}/{video_filename_wothout_extention}/manifest.mpd"
     )
 
     mq_data_to_publish = {
         "video_id": preprocessed_data.get("mq_data").get("video_id"),
         "user_id": preprocessed_data.get("mq_data").get("user_data").get("user_id"),
         "email": preprocessed_data.get("mq_data").get("user_data").get("email"),
+        "video_filename_wothout_extention": video_filename_wothout_extention, 
         "s3_manifest_file_url": s3_manifest_file_url,
         "subtitle_en_vtt_data": subtitle_en_vtt_data,
     }
