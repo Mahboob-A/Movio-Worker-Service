@@ -77,7 +77,7 @@ services:
     volumes: 
       - dev_movio_flower_data:/data
     ports: 
-      - "5556:5555"
+      - "5557:5555"
     
     
 networks: 

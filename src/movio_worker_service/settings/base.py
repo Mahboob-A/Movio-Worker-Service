@@ -135,4 +135,4 @@ MOVIO_LOCAL_VIDEO_STORAGE_SEGMENTS_ROOT_DIR = MOVIO_LOCAL_VIDEO_STORAGE_ROOT / "
 MOVIO_LOCAL_CC_STORAGE_ROOT = BASE_DIR / "movio-local-cc-files"
 
 # Traget languages to transranslate the subtiles: bengali, hindi, french, spanish
-MOVIO_SUBTITLE_TRANSLATE_TARGET_LANGUAGES = ["bn", "hi", "fr", "es"] 
+MOVIO_SUBTITLE_TRANSLATE_TARGET_LANGUAGES = ["en", "bn", "hi", "fr", "es"] 
